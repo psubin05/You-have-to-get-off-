@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>버스 승하차 알리미</title>
+    <!-- 카카오 지도 API를 사용하기 위한 스크립트를 포함 -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=a60321a2beb8567bad332ab4a92e9b73"></script>
+    <script>
+        var map; // 지도를 저장할 변수
+        var marker; // 마커를 저장할 변수
+        var selectedPosition = null; // 사용자가 선택한 위치를 저장할 변수
+
+        // 지도를 초기화하고 사용자의 현재 위치를 설정하는 함수
+        function initMap(position) {
+            var lat = position.coords.latitude; // 사용자의 현재 위도
+            var lng = position.coords.longitude; // 사용자의 현재 경도
+
+            // 지도를 표시할 HTML 요소와 옵션을 설정
+            var mapContainer = document.getElementById('map'),
+                mapOption = {
+                    center: new kakao.maps.LatLng(lat, lng), // 지도의 중심을 현재 위치로 설정
+                    level: 3 // 지도의 줌 레벨
+                };
+
+            map = new kakao.maps.Map(mapContainer, mapOption); // 지도를 생성
+
+            // 현재 위치에 마커를 표시
+            var currentMarker = new kakao.maps.Marker({
+                position: new kakao.maps.LatLng(lat, lng)
+            });
+            currentMarker.setMap(map);
+
+            // 지도 클릭 이벤트 리스너를 설정하여 사용자가 정류장을 선택하도록 함
+            kakao.maps.event.addListener(map, 'click', function(mouseEvent) {
+                var message = '클릭한 위치의 위도는 ' + mouseEvent.latLng.getLat() + ' 이고, ';
+                message += '경도는 ' + mouseEvent.latLng.getLng() + ' 입니다';
+
+                alert(message); // 선택한 위치를 사용자에게 알림
+
+                selectedPosition = mouseEvent.latLng; // 선택한 위치를 저장
+
+                if (marker) {
+                    marker.setMap(null); // 기존 마커가 있으면 제거
+                }
+
+                marker = new kakao.maps.Marker({
+                    position: selectedPosition // 선택한 위치에 마커를 생성
+                });
+
+                marker.setMap(map); // 마커를 지도에 표시
+
+                console.log("Selected position: ", selectedPosition);
+
+                // 선택한 정류장 위치를 서버로 전송
+                fetch('/select_station', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        lat: selectedPosition.getLat(),
+                        lng: selectedPosition.getLng()
+                    })
+                }).then(response => response.json())
+                .then(data => console.log("Response from /select_station: ", data))
+                .catch(error => console.error('Error:', error));
+            });
+        }
+
+        // 브라우저 알림을 보내는 함수
+        function sendNotification(message) {
+            if (Notification.permission === 'granted') {
+                new Notification(message); // 알림 권한이 허용된 경우 알림 전송
+            } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        new Notification(message); // 알림 권한을 요청하고 허용되면 알림 전송
+                    }
+                });
+            }
+        }
+
+        // 사용자의 위치가 변경될 때마다 서버로 전송하는 함수
+        function updateLocation(position) {
+            console.log("Updating location: ", position.coords);
+
+            // 현재 위치를 서버로 전송
+            fetch('/update_location', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.message) {
+                    console.log("Notification message: " + data.message);
+                    sendNotification(data.message); // 서버로부터 알림 메시지를 받으면 전송
+                } else {
+                    console.log("Current distance: " + data.distance + " km"); // 현재 거리를 로그에 출력
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        // 위치 정보를 가져오는 데 실패했을 때 처리하는 함수
+        function handleGeolocationError(error) {
+            console.warn(`ERROR(${error.code}): ${error.message}`);
+            var defaultPosition = {
+                coords: {
+                    latitude: 37.5665,
+                    longitude: 126.9780
+                }
+            };
+            initMap(defaultPosition); // 기본 위치(서울)로 지도를 초기화
+        }
+
+        // 페이지 로드 시 위치 정보를 가져와 지도 초기화 및 위치 업데이트 시작
+        window.onload = function() {
+            if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+                Notification.requestPermission(); // 알림 권한 요청
+            }
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(initMap, handleGeolocationError);
+                navigator.geolocation.watchPosition(updateLocation); // 위치 변경을 감지하여 업데이트
+            } else {
+                alert("Geolocation을 지원하지 않는 브라우저입니다.");
+                var defaultPosition = {
+                    coords: {
+                        latitude: 37.5665,
+                        longitude: 126.9780
+                    }
+                };
+                initMap(defaultPosition); // Geolocation을 지원하지 않으면 기본 위치로 지도를 초기화
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>버스 승하차 알리미</h1>
+    <div id="map" style="width:100%;height:400px;"></div> <!-- 지도를 표시할 영역 -->
+</body>
+</html>
